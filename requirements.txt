@@ -1,0 +1,4 @@
+# Python dependencies used directly by the application.
+# Note: .odt conversion requires LibreOffice installed separately.
+PySide6==6.10.2
+python-docx>=1.1,<2.0
