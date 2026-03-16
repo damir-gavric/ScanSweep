@@ -192,6 +192,52 @@ ThemeSwitchButton {
 """
 
 
+MESSAGE_BOX_DARK_THEME = """
+QMessageBox {
+    background-color: #1f1f1f;
+}
+QMessageBox QLabel {
+    color: #f4f4f4;
+    background: transparent;
+    min-width: 280px;
+}
+QMessageBox QPushButton {
+    min-width: 88px;
+    padding: 8px 14px;
+    border: 1px solid #4a4a4a;
+    border-radius: 8px;
+    background-color: #2b2b2b;
+    color: #f4f4f4;
+}
+QMessageBox QPushButton:hover {
+    background-color: #343434;
+}
+"""
+
+
+MESSAGE_BOX_LIGHT_THEME = """
+QMessageBox {
+    background-color: #f4f6fa;
+}
+QMessageBox QLabel {
+    color: #1d2433;
+    background: transparent;
+    min-width: 280px;
+}
+QMessageBox QPushButton {
+    min-width: 88px;
+    padding: 8px 14px;
+    border: 1px solid #c5d0e0;
+    border-radius: 8px;
+    background-color: #ffffff;
+    color: #1d2433;
+}
+QMessageBox QPushButton:hover {
+    background-color: #f8fbff;
+}
+"""
+
+
 class FileListWidget(QListWidget):
     files_dropped = Signal(list)
 
@@ -771,9 +817,22 @@ class MainWindow(QMainWindow):
         self.settings.setValue("quote_uniform", self.quote_uniform_checkbox.isChecked())
         self.settings.sync()
 
+    def show_message_box(self, icon, title, text):
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok)
+        box.setWindowIcon(QIcon(str(Path(__file__).with_name("app_icon.svg"))))
+        if self.theme_switch.theme_name() == "light":
+            box.setStyleSheet(MESSAGE_BOX_LIGHT_THEME)
+        else:
+            box.setStyleSheet(MESSAGE_BOX_DARK_THEME)
+        return box.exec()
+
     def show_profile_info(self):
-        QMessageBox.information(
-            self,
+        self.show_message_box(
+            QMessageBox.Information,
             "Profile Info",
             (
                 "Profiles define the cleanup style and final body-text formatting.\n\n"
@@ -793,8 +852,8 @@ class MainWindow(QMainWindow):
         )
 
     def show_quote_info(self):
-        QMessageBox.information(
-            self,
+        self.show_message_box(
+            QMessageBox.Information,
             "Quote Style Info",
             (
                 "This option runs at the end of processing and converts quotes to one consistent language-specific style.\n\n"
@@ -905,7 +964,7 @@ class MainWindow(QMainWindow):
     def run_cleaner(self):
         sources = self.collect_sources()
         if not sources:
-            QMessageBox.warning(self, "No file", "Choose at least one DOCX or ODT file first.")
+            self.show_message_box(QMessageBox.Warning, "No file", "Choose at least one DOCX or ODT file first.")
             return
 
         selected_format = self.output_format_combo.currentText()
@@ -995,7 +1054,7 @@ class MainWindow(QMainWindow):
         self.clear_active_highlight()
         self.file_stage_label.setText("Current stage: Finished")
         self.status_message.setText("Finished")
-        QMessageBox.information(self, "Done", "Cleaning finished. See log for details.")
+        self.show_message_box(QMessageBox.Information, "Done", "Cleaning finished. See log for details.")
         self.worker = None
 
     def on_cancelled(self):
@@ -1003,14 +1062,14 @@ class MainWindow(QMainWindow):
         self.clear_active_highlight()
         self.file_stage_label.setText("Current stage: Cancelled")
         self.status_message.setText("Cancelled")
-        QMessageBox.information(self, "Cancelled", "Cleaning was cancelled.")
+        self.show_message_box(QMessageBox.Information, "Cancelled", "Cleaning was cancelled.")
         self.worker = None
 
     def on_failed(self, error_message):
         self.set_running_state(False)
         self.clear_active_highlight()
         self.status_message.setText("Error")
-        QMessageBox.critical(self, "Error", error_message)
+        self.show_message_box(QMessageBox.Critical, "Error", error_message)
         self.worker = None
 
     def closeEvent(self, event):
