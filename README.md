@@ -35,13 +35,12 @@ It focuses on practical post-conversion cleanup:
 
 ## Requirements
 
-- Python 3.13
+- Python 3.13 or newer
 - LibreOffice for `.odt` input/output conversion
 
 Python dependencies used by the app:
 - `python-docx`
 - `PySide6`
-- `odfpy`
 
 ## Run
 
@@ -49,6 +48,12 @@ From the project directory:
 
 ```powershell
 cmd /c .venv\Scripts\python.exe main.py
+```
+
+## Tests
+
+```powershell
+cmd /c .venv\Scripts\python.exe -m unittest discover -s tests -t .
 ```
 
 ## Audit Log
@@ -90,4 +95,4 @@ The audit log includes:
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](C:/Users/damir/PycharmProjects/CleanDOCX/LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
