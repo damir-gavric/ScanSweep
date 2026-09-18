@@ -500,6 +500,7 @@ class CleanerWorker(QThread):
                     process_docx(
                         src=working_input,
                         dst=cleaned_docx,
+                        do_deframe=self.options["deframe"],
                         do_spacing=self.options["spacing"],
                         do_blanks=self.options["blanks"],
                         do_breaks=self.options["breaks"],
@@ -715,6 +716,14 @@ class MainWindow(QMainWindow):
         options_layout = QVBoxLayout(options_group)
         options_layout.setSpacing(10)
 
+        self.deframe_checkbox = QCheckBox("Flatten PDF page layout")
+        self.deframe_checkbox.setChecked(True)
+        self.deframe_checkbox.setToolTip(
+            "Release paragraphs that a PDF conversion pinned to fixed page coordinates, "
+            "so the text can flow and be edited."
+        )
+        options_layout.addWidget(self.deframe_checkbox)
+
         self.spacing_checkbox = QCheckBox("Spacing, punctuation, quotes, ligatures")
         self.spacing_checkbox.setChecked(True)
         options_layout.addWidget(self.spacing_checkbox)
@@ -744,7 +753,9 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(self.quote_uniform_checkbox)
 
         options_note = QLabel(
-            "Sentence merging stays conservative: headings, lists and title-like lines are protected."
+            "Sentence merging stays conservative: headings, lists and title-like lines are protected. "
+            "Leave page layout flattening on for documents converted from PDF; without it the text "
+            "stays locked to page coordinates and can pile up once breaks are removed."
         )
         options_note.setWordWrap(True)
         options_note.setObjectName("noteLabel")
@@ -810,6 +821,7 @@ class MainWindow(QMainWindow):
             "english": "english-double",
         }
         self.quote_language_combo.setCurrentText(quote_aliases.get(stored_quote_language, stored_quote_language))
+        self.deframe_checkbox.setChecked(self.settings.value("deframe", True, type=bool))
         self.spacing_checkbox.setChecked(self.settings.value("spacing", True, type=bool))
         self.blanks_checkbox.setChecked(self.settings.value("blanks", True, type=bool))
         self.breaks_checkbox.setChecked(self.settings.value("breaks", True, type=bool))
@@ -824,6 +836,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("output_format", self.output_format_combo.currentText())
         self.settings.setValue("theme", self.theme_switch.theme_name())
         self.settings.setValue("quote_language", self.quote_language_combo.currentText())
+        self.settings.setValue("deframe", self.deframe_checkbox.isChecked())
         self.settings.setValue("spacing", self.spacing_checkbox.isChecked())
         self.settings.setValue("blanks", self.blanks_checkbox.isChecked())
         self.settings.setValue("breaks", self.breaks_checkbox.isChecked())
@@ -938,6 +951,7 @@ class MainWindow(QMainWindow):
         self.quote_language_combo.setEnabled(not running)
         self.profile_info_button.setEnabled(not running)
         self.quote_info_button.setEnabled(not running)
+        self.deframe_checkbox.setEnabled(not running)
         self.spacing_checkbox.setEnabled(not running)
         self.blanks_checkbox.setEnabled(not running)
         self.breaks_checkbox.setEnabled(not running)
@@ -1013,6 +1027,7 @@ class MainWindow(QMainWindow):
         self.set_running_state(True)
 
         options = {
+            "deframe": self.deframe_checkbox.isChecked(),
             "spacing": self.spacing_checkbox.isChecked(),
             "blanks": self.blanks_checkbox.isChecked(),
             "breaks": self.breaks_checkbox.isChecked(),

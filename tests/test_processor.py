@@ -10,7 +10,9 @@ from processor import (
     normalize_run_text,
 )
 from audit_log import AuditLog
-from processor import _run_fix_broken_sentences, fix_broken_sentences
+from processor import _run_fix_broken_sentences, fix_broken_sentences, remove_page_frames
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 class NormalizeRunTextTests(unittest.TestCase):
@@ -224,6 +226,76 @@ class MergeAcrossSectionBreakTests(unittest.TestCase):
         doc.add_paragraph("nastavak prve recenice.")
 
         self.assertEqual(self._merge(doc), 0)
+
+
+def anchor_to_page(paragraph, x=2754, y=5754):
+    """Pin a paragraph to an absolute spot on its page, the way ABBYY converts a PDF."""
+    frame = OxmlElement("w:framePr")
+    frame.set(qn("w:wrap"), "none")
+    frame.set(qn("w:vAnchor"), "page")
+    frame.set(qn("w:hAnchor"), "page")
+    frame.set(qn("w:x"), str(x))
+    frame.set(qn("w:y"), str(y))
+    paragraph._element.get_or_add_pPr().insert(0, frame)
+    return paragraph
+
+
+class PageFrameTests(unittest.TestCase):
+    @staticmethod
+    def _strip(doc):
+        return remove_page_frames(doc, lambda message: None)
+
+    @staticmethod
+    def _frames(paragraph):
+        return paragraph._element.xpath("./w:pPr/w:framePr")
+
+    def test_releases_a_paragraph_pinned_to_the_page(self):
+        doc = Document()
+        paragraph = anchor_to_page(doc.add_paragraph("tekst"))
+
+        self._strip(doc)
+
+        self.assertEqual(self._frames(paragraph), [])
+
+    def test_releases_paragraphs_inside_table_cells(self):
+        doc = Document()
+        cell = doc.add_table(rows=1, cols=1).cell(0, 0)
+        cell.text = "u tabeli"
+        paragraph = anchor_to_page(cell.paragraphs[0])
+
+        self._strip(doc)
+
+        self.assertEqual(self._frames(paragraph), [])
+
+    def test_reports_how_many_were_released(self):
+        doc = Document()
+        anchor_to_page(doc.add_paragraph("prvi"))
+        anchor_to_page(doc.add_paragraph("drugi"))
+        doc.add_paragraph("treci bez okvira")
+
+        self.assertEqual(self._strip(doc), 2)
+
+    def test_releases_frames_in_vertically_merged_table_cells(self):
+        doc = Document()
+        table = doc.add_table(rows=2, cols=1)
+        table.cell(0, 0).merge(table.cell(1, 0))
+        for element in table._tbl.iter(qn("w:p")):
+            frame = OxmlElement("w:framePr")
+            frame.set(qn("w:vAnchor"), "page")
+            frame.set(qn("w:y"), "5754")
+            element.get_or_add_pPr().insert(0, frame)
+
+        self._strip(doc)
+
+        self.assertEqual(list(doc.element.body.iter(qn("w:framePr"))), [])
+
+    def test_leaves_the_text_alone(self):
+        doc = Document()
+        anchor_to_page(doc.add_paragraph("tekst ostaje isti"))
+
+        self._strip(doc)
+
+        self.assertEqual([p.text for p in doc.paragraphs], ["tekst ostaje isti"])
 
 
 if __name__ == "__main__":

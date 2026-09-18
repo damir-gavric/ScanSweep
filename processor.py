@@ -357,6 +357,33 @@ def remove_breaks(doc, log, progress=None, should_cancel=None):
     return page_breaks
 
 
+def remove_page_frames(doc, log, progress=None, should_cancel=None):
+    """Release paragraphs pinned to absolute coordinates on their page.
+
+    A PDF converted for exact layout wraps every paragraph in a frame anchored
+    to the page. The text cannot reflow, and once the section breaks between
+    pages are gone the frames all land on one page on top of each other.
+    """
+    # Walk the XML rather than the paragraph API: the continuation cell of a
+    # vertical merge is never handed out as a cell of its own, and its frames
+    # would survive.
+    frames = list(doc.element.body.iter(qn("w:framePr")))
+    total = len(frames)
+    released = 0
+
+    for index, frame in enumerate(frames, start=1):
+        ensure_not_cancelled(should_cancel)
+        frame.getparent().remove(frame)
+        released += 1
+        if progress is not None and (index == total or index % 10 == 0):
+            progress(index, total)
+
+    if progress is not None and total == 0:
+        progress(1, 1)
+    log(f"  - Released {released} paragraphs pinned to page coordinates")
+    return released
+
+
 def reset_indents(doc, log, profile_name, progress=None, should_cancel=None):
     settings = get_profile_settings(profile_name)
     paragraphs = collect_all_paragraphs(doc)
@@ -604,6 +631,7 @@ def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=No
 def process_docx(
     src,
     dst,
+    do_deframe,
     do_spacing,
     do_blanks,
     do_breaks,
@@ -624,6 +652,10 @@ def process_docx(
     doc = Document(src)
 
     enabled_stages = []
+    if do_deframe:
+        enabled_stages.append(
+            ("Flatten page layout", lambda reporter: _run_remove_page_frames(doc, log, reporter, should_cancel, audit_log))
+        )
     if do_spacing:
         enabled_stages.append(
             ("Clean spacing", lambda reporter: _run_spacing(doc, profile_name, reporter, should_cancel, audit_log))
@@ -694,6 +726,12 @@ def _run_spacing(doc, profile_name, progress, should_cancel, audit_log):
             run.text = after
 
     for_each_paragraph(paragraphs, clean_paragraph, progress, should_cancel)
+
+
+def _run_remove_page_frames(doc, log, progress, should_cancel, audit_log):
+    released = remove_page_frames(doc, log, progress, should_cancel)
+    if audit_log is not None:
+        audit_log.bump("page_frames_released", released)
 
 
 def _run_delete_blanks(doc, log, progress, should_cancel, audit_log):
