@@ -50,7 +50,7 @@ from processor import (
 )
 
 
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 OUTPUT_FORMATS = (".docx", ".odt")
 
 # The presets this version replaced, used once to carry an old choice over.
