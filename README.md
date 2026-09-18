@@ -1,118 +1,119 @@
 # ScanSweep
 
-ScanSweep is a tool for cleaning `.docx` and `.odt` documents produced from PDF conversion, OCR, and low-quality scans.
+ScanSweep cleans up `.docx` and `.odt` documents that came out of a PDF conversion,
+an OCR pass or a poor scan, and turns them back into something you can edit.
 
-It focuses on practical post-conversion cleanup:
-- spacing and punctuation fixes
-- quote normalization and language-specific quote styling
-- OCR artifact cleanup
-- broken sentence merging
-- paragraph formatting by profile
-- batch processing
-- audit log generation
-- preservation of footnotes, endnotes, and comments in `.docx`
-
-<p style="text-align: center;">
-  <img src="docs/img.png" alt="CleanText" width="800">
+<p align="center">
+  <img src="docs/img.png" alt="ScanSweep" width="860">
 </p>
 
-## Features
+## Download
 
-- PySide6 desktop interface
-- Single-file and batch processing
-- Input support for `.docx` and `.odt`
-- Output support for `.docx` and `.odt`
-- Profiles:
-  - `novel`
-  - `academic`
-  - `legal`
-- Quote styles:
-  - `english-double`
-  - `english-single`
-  - `serbian`
-  - `german`
-- Automatic `.audit.md` file saved next to each exported file
+Grab the latest `ScanSweep-<version>.exe` from
+[Releases](https://github.com/damir-gavric/ScanSweep/releases). It is a single
+portable file: no installer, nothing to set up. Copy it anywhere, including a USB
+stick, and run it.
 
-## Requirements
+Settings live in `ScanSweep.ini` beside the executable rather than in the
+registry, so the app leaves nothing behind on the machine it runs from.
 
-- Python 3.13 or newer
-- LibreOffice for `.odt` input/output conversion
+LibreOffice is not bundled. Without it `.docx` cleanup works as usual, but `.odt`
+input and output are unavailable.
 
-Python dependencies used by the app:
-- `python-docx`
-- `PySide6`
+## What it fixes
 
-## Run
+A PDF converted for exact layout pins every paragraph to a coordinate on its page
+and splits sentences wherever a page happened to end. OCR leaves marks of its
+own: ligatures, stray spaces, collapsed punctuation. ScanSweep undoes both.
 
-From the project directory:
+## Cleanup rules
+
+Every rule is a checkbox you can turn off. They run in this order.
+
+| Rule | What it does |
+| --- | --- |
+| Flatten PDF page layout | Releases paragraphs pinned to absolute page coordinates so the text flows again. **Leave this on for anything converted from PDF** — without it the text stays locked in place and piles up on a single page once breaks are removed. |
+| Spacing, punctuation, quotes, ligatures | Collapses double spaces, removes spaces before punctuation, rejoins words broken across a line, undoes ligatures (`ﬁ` → `fi`), tidies runs of dots, normalises quotation marks and dashes. |
+| Delete blank rows | Removes empty paragraphs, but keeps any that carry a section break, along with the page size, margins and headers it holds. |
+| Remove breaks | Deletes manual page, column and line breaks, and makes section breaks continuous. |
+| Reset indents | Clears left and right indents and applies your first-line indent to body paragraphs. |
+| Unify body text | Applies your font, size and line spacing to body text and justifies it. Headings and titles are left alone. |
+| Fix broken sentences | Rejoins a paragraph with the one after it when a sentence was split in two, typically at a page boundary. Headings, lists, numbered items and title-like lines are protected. |
+| Uniform quotes at the end | Converts every quotation mark to the style you picked. |
+| Close spaces around slashes | `i / ili` → `i/ili`. |
+| Keep legal numbering on its own line | Stops `Article 1`, `§ 2`, `(3)` and `1.1` being merged into the paragraph that follows. |
+
+Sentence merging stays deliberately conservative. A line that is a capitalised
+word and a colon, such as `Napomena:`, is always read as a label and never merged.
+
+## Settings
+
+| Setting | Notes |
+| --- | --- |
+| Font and size | Any scalable Latin face installed on the machine. |
+| Spacing | Line spacing for body text. |
+| First line | First-line indent in centimetres; `0` for none. |
+| Output | `.docx` or `.odt`. |
+| Quotes | See below. |
+
+### Quote styles
+
+| Style | Marks | Code points |
+| --- | --- | --- |
+| English, double | `"A"` | U+0022 |
+| English, single | `'A'` | U+0027 |
+| Serbian | `„A”` | U+201E, U+201D |
+| German | `„A“` | U+201E, U+201C |
+
+Serbian and German differ only in which way the closing mark turns, which is why
+the interface shows the marks themselves rather than the language names.
+
+## Batch mode
+
+Tick **Batch mode** to process every file in the list into an output folder of
+your choice. Left off, only the first file is used and you pick the output name.
+Either way, you can drag `.docx` and `.odt` files straight onto the list.
+
+## Audit log
+
+Every output file gets a `.audit.md` beside it:
+
+- Output file: `document_cleaned.docx`
+- Audit log: `document_cleaned.audit.md`
+
+It records the input and output paths, the formatting settings and rules actually
+used, a count per kind of change, selected `before → after` examples, and which
+package parts were carried over.
+
+Footnotes, endnotes and comments survive a `.docx` round trip. The runs carrying
+their references are skipped during text rewriting, so the links do not break.
+
+## Building from source
+
+Requires Python 3.13 or newer, and LibreOffice for `.odt` conversion. The only
+Python dependencies are `PySide6` and `python-docx`.
+
+Run it:
 
 ```powershell
 cmd /c .venv\Scripts\python.exe main.py
 ```
 
-## Tests
+Run the tests:
 
 ```powershell
 cmd /c .venv\Scripts\python.exe -m unittest discover -s tests -t .
 ```
 
-## Audit Log
-
-For every processed output file, ScanSweep writes an audit log next to it:
-
-- Output file: `document_cleaned.docx`
-- Audit log: `document_cleaned.audit.md`
-
-The audit log includes:
-- input/output metadata
-- enabled options
-- summary counts
-- selected `before -> after` examples
-- notes about preserved package parts such as comments or notes
-
-## Profiles
-
-`novel`
-- Garamond 12
-- first-line indent 1 cm
-- softer cleanup behavior for prose-oriented documents
-
-`academic`
-- Arial 11
-- first-line indent 1 cm
-- neutral general-purpose cleanup
-
-`legal`
-- Times New Roman 12
-- no first-line indent
-- stronger protection for structured legal numbering and clause patterns
-
-## Portable Build
-
-The Windows release is a single portable `.exe`. There is no installer: copy it
-anywhere, including a USB stick, and run it.
-
-Settings are stored in `ScanSweep.ini` next to the executable rather than in the
-registry, so the app leaves nothing behind on the machine it runs from.
-
-LibreOffice is not bundled. Without it the app still cleans `.docx`, but `.odt`
-input and output are unavailable.
-
-Build it from the project directory:
+Build the portable executable:
 
 ```powershell
 cmd /c .venv\Scripts\python.exe -m PyInstaller --clean --noconfirm ScanSweep.spec
 ```
 
-The version comes from `APP_VERSION` in `main.py`; the spec reads it to name the
+The version comes from `APP_VERSION` in `main.py`. The spec reads it to name the
 executable and fill in the Windows file properties.
-
-## Notes
-
-- `.odt` files are converted through LibreOffice before and after cleaning.
-- Footnotes, endnotes, and comments are preserved for `.docx` output.
-- Protected references and comment/note markers are skipped during text rewrite operations to avoid breaking links.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

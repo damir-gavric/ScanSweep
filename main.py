@@ -907,7 +907,9 @@ class MainWindow(QMainWindow):
         quotes_layout.setSpacing(22)
         quotes_layout.addWidget(quote_label)
         for language in QUOTE_LANGUAGES:
-            button = QRadioButton(quote_example(language, " "))  # thin space keeps the pair tight but legible
+            button = QRadioButton(quote_example(language, "A"))
+            # A letter between the marks gives the eye a baseline: Serbian and
+            # German differ only in which way the closing mark turns.
             button.setFont(marks_font)
             button.setToolTip(language)
             button.setProperty("quoteLanguage", language)
