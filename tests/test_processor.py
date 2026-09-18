@@ -1,6 +1,7 @@
 import unittest
 
 from docx import Document
+from docx.enum.section import WD_SECTION_START
 
 from processor import (
     apply_quote_style_to_segments,
@@ -8,6 +9,8 @@ from processor import (
     delete_empty_paragraphs,
     normalize_run_text,
 )
+from audit_log import AuditLog
+from processor import _run_fix_broken_sentences, fix_broken_sentences
 
 
 class NormalizeRunTextTests(unittest.TestCase):
@@ -50,6 +53,29 @@ class NormalizeRunTextTests(unittest.TestCase):
 
     def test_normalizes_duplicate_punctuation(self):
         self.assertEqual(normalize_run_text("ovo .. ,,, test", "academic"), "ovo., test")
+
+    def test_keeps_an_ellipsis(self):
+        self.assertEqual(
+            normalize_run_text("trebalo je imati vere... vere koju", "academic"),
+            "trebalo je imati vere... vere koju",
+        )
+
+    def test_tidies_a_spaced_or_overlong_ellipsis(self):
+        self.assertEqual(normalize_run_text("vere. . . vere", "academic"), "vere... vere")
+        self.assertEqual(normalize_run_text("vere..... vere", "academic"), "vere... vere")
+
+    def test_keeps_an_en_dash_between_words(self):
+        self.assertEqual(
+            normalize_run_text("znamo da to mozemo – kao sto znamo", "academic"),
+            "znamo da to mozemo – kao sto znamo",
+        )
+
+    def test_reduces_an_em_dash_to_an_en_dash(self):
+        self.assertEqual(normalize_run_text("mozemo — kao sto", "academic"), "mozemo – kao sto")
+        self.assertEqual(normalize_run_text("— Zdravo", "academic"), "– Zdravo")
+
+    def test_spaces_out_a_dash_glued_between_words(self):
+        self.assertEqual(normalize_run_text("rec—rec", "academic"), "rec – rec")
 
     def test_slash_spacing_depends_on_profile(self):
         self.assertEqual(normalize_run_text("i / ili", "academic"), "i/ili")
@@ -101,6 +127,17 @@ class DeleteEmptyParagraphsTests(unittest.TestCase):
         self.assertEqual(len(cell.paragraphs), 1)
         self.assertEqual(removed, 2)
 
+    def test_keeps_a_blank_paragraph_that_carries_a_section_break(self):
+        doc = Document()
+        doc.add_paragraph("prvi")
+        doc.add_section(WD_SECTION_START.NEW_PAGE)
+        doc.add_paragraph("drugi")
+
+        self._clean(doc)
+
+        self.assertEqual(len(doc.sections), 2)
+        self.assertEqual([p.text for p in doc.paragraphs if p.text.strip()], ["prvi", "drugi"])
+
     def test_removes_all_blank_paragraphs_from_document_body(self):
         doc = Document()
         doc.add_paragraph("prvi")
@@ -112,6 +149,81 @@ class DeleteEmptyParagraphsTests(unittest.TestCase):
 
         self.assertEqual([p.text for p in doc.paragraphs], ["prvi", "drugi"])
         self.assertEqual(removed, 2)
+
+
+class MergeAuditTests(unittest.TestCase):
+    @staticmethod
+    def _audit():
+        return AuditLog("src.docx", "dst.docx", "academic", "serbian", ".docx", {})
+
+    def test_records_one_change_per_merge_and_nothing_else(self):
+        doc = Document()
+        doc.add_paragraph("Prva recenica koja se nastavlja")
+        doc.add_paragraph("nastavak prve recenice.")
+        doc.add_paragraph("Druga recenica koja se nastavlja")
+        doc.add_paragraph("nastavak druge recenice.")
+        doc.add_paragraph("Peta recenica stoji sama.")
+        doc.add_paragraph("Sesta recenica stoji sama.")
+        audit = self._audit()
+
+        _run_fix_broken_sentences(doc, lambda message: None, "academic", None, None, audit)
+
+        self.assertEqual(audit.stats["merged_paragraph_pairs"], 2)
+        self.assertEqual(len(audit.changes["paragraph_merge"]), 2)
+
+    def test_recorded_change_shows_the_two_merged_paragraphs(self):
+        doc = Document()
+        doc.add_paragraph("Prva recenica koja se nastavlja")
+        doc.add_paragraph("nastavak prve recenice.")
+        audit = self._audit()
+
+        _run_fix_broken_sentences(doc, lambda message: None, "academic", None, None, audit)
+
+        change = audit.changes["paragraph_merge"][0]
+        self.assertIn("Prva recenica koja se nastavlja", change["before"])
+        self.assertIn("nastavak prve recenice.", change["before"])
+        self.assertEqual(
+            change["after"],
+            "Prva recenica koja se nastavlja nastavak prve recenice.",
+        )
+
+
+class MergeAcrossSectionBreakTests(unittest.TestCase):
+    @staticmethod
+    def _merge(doc):
+        return fix_broken_sentences(doc, lambda message: None, "academic")
+
+    def test_merges_a_sentence_split_across_a_section_break(self):
+        doc = Document()
+        doc.add_paragraph("Prva recenica koja se nastavlja")
+        doc.add_section(WD_SECTION_START.NEW_PAGE)
+        doc.add_paragraph("nastavak prve recenice.")
+
+        merges = self._merge(doc)
+
+        self.assertEqual(merges, 1)
+        self.assertIn(
+            "Prva recenica koja se nastavlja nastavak prve recenice.",
+            [p.text for p in doc.paragraphs],
+        )
+
+    def test_the_section_break_survives_the_merge(self):
+        doc = Document()
+        doc.add_paragraph("Prva recenica koja se nastavlja")
+        doc.add_section(WD_SECTION_START.NEW_PAGE)
+        doc.add_paragraph("nastavak prve recenice.")
+
+        self._merge(doc)
+
+        self.assertEqual(len(doc.sections), 2)
+
+    def test_does_not_merge_across_a_plain_blank_paragraph(self):
+        doc = Document()
+        doc.add_paragraph("Prva recenica koja se nastavlja")
+        doc.add_paragraph("")
+        doc.add_paragraph("nastavak prve recenice.")
+
+        self.assertEqual(self._merge(doc), 0)
 
 
 if __name__ == "__main__":

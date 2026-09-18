@@ -112,6 +112,19 @@ def paragraph_has_protected_markup(paragraph):
     return any(run_has_protected_markup(run) for run in paragraph.runs)
 
 
+def paragraph_only_carries_section_break(paragraph):
+    """True for a blank paragraph that exists to hold a section break.
+
+    Such a paragraph carries page size, margins and headers for everything
+    before it, so it must survive cleanup. It separates nothing, though: in a
+    document converted from PDF it sits at each page boundary, which is exactly
+    where a sentence tends to be split in two.
+    """
+    if paragraph.text.strip() != "":
+        return False
+    return bool(paragraph._element.xpath("./w:pPr/w:sectPr"))
+
+
 def ensure_not_cancelled(should_cancel):
     if should_cancel is not None and should_cancel():
         raise CleaningCancelled("Operation cancelled.")
@@ -134,10 +147,16 @@ def normalize_quotes(txt):
     return txt
 
 
+def _collapse_dot_run(match):
+    # Three or more dots are an ellipsis the author meant; anything shorter is
+    # OCR noise. Either way the run is rewritten in its canonical form.
+    return "..." if match.group(0).count(".") >= 3 else "."
+
+
 def normalize_duplicate_punctuation(txt):
     txt = re.sub(r"([,;:])(?:\s*\1)+", r"\1", txt)
     txt = re.sub(r"([!?])(?:\s*\1)+", r"\1", txt)
-    txt = re.sub(r"\.(?:\s*\.){1,}", ".", txt)
+    txt = re.sub(r"\.(?:\s*\.)+", _collapse_dot_run, txt)
     txt = re.sub(r":\s*,", ":", txt)
     txt = re.sub(r";\s*,", ";", txt)
     return txt
@@ -238,8 +257,8 @@ def normalize_run_text(text, profile_name, quote_style='"'):
     txt = normalize_ocr_closing_quote_11(txt)
     txt = normalize_quote_boundaries(txt)
     txt = normalize_broken_word_hyphenation(txt)
-    txt = re.sub(r"(?<=\S)\s*[–—]\s*(?=\S)", " - ", txt)
-    txt = txt.replace("–", "-").replace("—", "-")
+    txt = re.sub(r"(?<=\S)\s*[–—]\s*(?=\S)", " – ", txt)
+    txt = txt.replace("—", "–")
     txt = normalize_false_number_spacing(txt)
     txt = normalize_special_spacing(txt, settings["normalize_slash_spacing"])
     txt = re.sub(r" {2,}", " ", txt)
@@ -296,7 +315,7 @@ def delete_empty_paragraphs(doc, log, progress=None, should_cancel=None):
 
     for index, paragraph in enumerate(paragraphs, start=1):
         ensure_not_cancelled(should_cancel)
-        if paragraph.text.strip() == "":
+        if paragraph.text.strip() == "" and not paragraph_only_carries_section_break(paragraph):
             paragraphs_to_remove.append(paragraph)
         if progress is not None and (index == total or index % 10 == 0):
             progress(index, total)
@@ -496,7 +515,9 @@ def should_merge_paragraphs(current_paragraph, next_paragraph, profile_name):
     return False, False
 
 
-def fix_broken_sentences_in_collection(paragraphs, profile_name, progress=None, should_cancel=None):
+def fix_broken_sentences_in_collection(
+    paragraphs, profile_name, progress=None, should_cancel=None, on_merge=None
+):
     merges = 0
     total = len(paragraphs)
     i = 0
@@ -514,6 +535,9 @@ def fix_broken_sentences_in_collection(paragraphs, profile_name, progress=None, 
         join, strip_hyphen = should_merge_paragraphs(current_paragraph, next_paragraph, profile_name)
 
         if join:
+            before_first = current_paragraph.text.strip()
+            before_second = next_paragraph.text.strip()
+
             if strip_hyphen and current_paragraph.runs:
                 current_paragraph.runs[-1].text = current_paragraph.runs[-1].text.rstrip("-")
 
@@ -526,6 +550,8 @@ def fix_broken_sentences_in_collection(paragraphs, profile_name, progress=None, 
             next_paragraph._element.getparent().remove(next_paragraph._element)
             paragraphs.pop(i + 1)
             merges += 1
+            if on_merge is not None:
+                on_merge(before_first, before_second, current_paragraph.text.strip())
         else:
             i += 1
 
@@ -537,13 +563,13 @@ def fix_broken_sentences_in_collection(paragraphs, profile_name, progress=None, 
     return merges
 
 
-def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=None):
+def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=None, on_merge=None):
     merges = 0
     collections = list(iter_paragraph_collections(doc))
     total = len(collections)
     if total == 0:
         log("  - Merged 0 broken sentence pairs")
-        return
+        return 0
 
     for index, paragraph_collection in enumerate(collections, start=1):
         ensure_not_cancelled(should_cancel)
@@ -560,8 +586,13 @@ def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=No
                 overall_done = start_fraction + (end_fraction - start_fraction) * nested_fraction
                 progress(overall_done, 1)
 
+        mergeable = [
+            paragraph
+            for paragraph in paragraph_collection
+            if not paragraph_only_carries_section_break(paragraph)
+        ]
         merges += fix_broken_sentences_in_collection(
-            list(paragraph_collection), profile_name, local_progress, should_cancel
+            mergeable, profile_name, local_progress, should_cancel, on_merge
         )
         if progress is not None:
             progress(index, total)
@@ -694,30 +725,13 @@ def _run_fix_broken_sentences(doc, log, profile_name, progress, should_cancel, a
         fix_broken_sentences(doc, log, profile_name, progress, should_cancel)
         return
 
-    paragraphs = list(iter_paragraph_collections(doc))
-    # lightweight snapshot before running the merge stage
-    before_snapshot = [
-        [paragraph.text for paragraph in collection]
-        for collection in paragraphs
-    ]
-    merges = fix_broken_sentences(doc, log, profile_name, progress, should_cancel)
-    after_snapshot = [
-        [paragraph.text for paragraph in collection]
-        for collection in list(iter_paragraph_collections(doc))
-    ]
+    def record_merge(before_first, before_second, after_text):
+        audit_log.record_change(
+            "paragraph_merge", f"{before_first} || {before_second}", after_text
+        )
+
+    merges = fix_broken_sentences(doc, log, profile_name, progress, should_cancel, record_merge)
     audit_log.bump("merged_paragraph_pairs", merges)
-    for before_collection, after_collection in zip(before_snapshot, after_snapshot):
-        if len(before_collection) <= len(after_collection):
-            continue
-        for index in range(len(before_collection) - 1):
-            if index >= len(after_collection):
-                break
-            before_first = before_collection[index].strip()
-            before_second = before_collection[index + 1].strip()
-            combined_before = f"{before_first} || {before_second}"
-            after_value = after_collection[index].strip()
-            if after_value != before_first and after_value != before_second:
-                audit_log.record_change("paragraph_merge", combined_before, after_value)
 
 
 def _run_uniform_quotes(doc, log, quote_language, progress, should_cancel, audit_log):
