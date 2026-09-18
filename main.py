@@ -7,6 +7,7 @@ from PySide6.QtCore import QRectF, QSize, QSettings, QThread, Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -28,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from conversion import convert_with_libreoffice, needs_conversion
 from audit_log import AuditLog
-from processor import CleaningCancelled, process_docx
+from processor import QUOTE_LANGUAGES, CleaningCancelled, process_docx, quote_example
 
 
 APP_VERSION = "2.2"
@@ -90,12 +92,29 @@ QPushButton[infoButton="true"] {
     border: none;
     background: transparent;
 }
-QLabel, QCheckBox, QGroupBox {
+QLabel, QCheckBox, QRadioButton, QGroupBox {
     background: transparent;
     color: #f4f4f4;
 }
-QCheckBox {
+QCheckBox, QRadioButton {
     spacing: 8px;
+}
+QRadioButton::indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 8px;
+    border: 1px solid #6a6a6a;
+    background-color: #222222;
+}
+QRadioButton::indicator:hover {
+    border-color: #8f8f8f;
+}
+QRadioButton::indicator:checked {
+    width: 8px;
+    height: 8px;
+    border: 4px solid #59c4ff;
+    border-radius: 8px;
+    background-color: #1f1f1f;
 }
 QProgressBar {
     border: 1px solid #505050;
@@ -171,12 +190,29 @@ QPushButton[infoButton="true"] {
     border: none;
     background: transparent;
 }
-QLabel, QCheckBox, QGroupBox {
+QLabel, QCheckBox, QRadioButton, QGroupBox {
     background: transparent;
     color: #1d2433;
 }
-QCheckBox {
+QCheckBox, QRadioButton {
     spacing: 8px;
+}
+QRadioButton::indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 8px;
+    border: 1px solid #a6b2c4;
+    background-color: #ffffff;
+}
+QRadioButton::indicator:hover {
+    border-color: #7d8ca3;
+}
+QRadioButton::indicator:checked {
+    width: 8px;
+    height: 8px;
+    border: 4px solid #1683d8;
+    border-radius: 8px;
+    background-color: #ffffff;
 }
 QProgressBar {
     border: 1px solid #c5d0e0;
@@ -696,19 +732,24 @@ class MainWindow(QMainWindow):
         output_row.addWidget(self.output_format_combo, 1)
         settings_layout.addLayout(output_row)
 
-        quote_row = QHBoxLayout()
         quote_label = QLabel("Quotes")
-        quote_label.setMinimumWidth(60)
-        quote_row.addWidget(quote_label)
-        self.quote_language_combo = QComboBox()
-        self.quote_language_combo.addItems(["english-double", "english-single", "serbian", "german"])
-        self.quote_language_combo.setCurrentText("serbian")
-        self.quote_language_combo.setMinimumHeight(34)
-        quote_row.addWidget(self.quote_language_combo, 1)
-        self.quote_info_button = self._create_info_button()
-        self.quote_info_button.clicked.connect(self.show_quote_info)
-        quote_row.addWidget(self.quote_info_button)
-        settings_layout.addLayout(quote_row)
+        settings_layout.addWidget(quote_label)
+
+        self.quote_group = QButtonGroup(self)
+        sample_font = QFont(self.font())
+        sample_font.setPointSize(sample_font.pointSize() + 3)
+        for language in QUOTE_LANGUAGES:
+            quote_row = QHBoxLayout()
+            button = QRadioButton(quote_example(language))
+            button.setFont(sample_font)
+            button.setProperty("quoteLanguage", language)
+            self.quote_group.addButton(button)
+            quote_row.addWidget(button)
+            quote_row.addStretch(1)
+            name = QLabel(language)
+            name.setObjectName("hintLabel")
+            quote_row.addWidget(name)
+            settings_layout.addLayout(quote_row)
 
         right_column.addWidget(settings_group)
 
@@ -805,6 +846,20 @@ class MainWindow(QMainWindow):
         button.setText("")
         return button
 
+    def quote_language(self):
+        button = self.quote_group.checkedButton()
+        if button is None:
+            return QUOTE_LANGUAGES[0]
+        return button.property("quoteLanguage")
+
+    def set_quote_language(self, language):
+        buttons = self.quote_group.buttons()
+        for button in buttons:
+            if button.property("quoteLanguage") == language:
+                button.setChecked(True)
+                return
+        buttons[0].setChecked(True)
+
     def load_settings(self):
         self.batch_checkbox.setChecked(self.settings.value("batch_mode", False, type=bool))
         stored_profile = self.settings.value("profile", "academic")
@@ -820,7 +875,7 @@ class MainWindow(QMainWindow):
         quote_aliases = {
             "english": "english-double",
         }
-        self.quote_language_combo.setCurrentText(quote_aliases.get(stored_quote_language, stored_quote_language))
+        self.set_quote_language(quote_aliases.get(stored_quote_language, stored_quote_language))
         self.deframe_checkbox.setChecked(self.settings.value("deframe", True, type=bool))
         self.spacing_checkbox.setChecked(self.settings.value("spacing", True, type=bool))
         self.blanks_checkbox.setChecked(self.settings.value("blanks", True, type=bool))
@@ -835,7 +890,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("profile", self.profile_combo.currentText())
         self.settings.setValue("output_format", self.output_format_combo.currentText())
         self.settings.setValue("theme", self.theme_switch.theme_name())
-        self.settings.setValue("quote_language", self.quote_language_combo.currentText())
+        self.settings.setValue("quote_language", self.quote_language())
         self.settings.setValue("deframe", self.deframe_checkbox.isChecked())
         self.settings.setValue("spacing", self.spacing_checkbox.isChecked())
         self.settings.setValue("blanks", self.blanks_checkbox.isChecked())
@@ -877,24 +932,6 @@ class MainWindow(QMainWindow):
                 "- Times New Roman 12, no first-line indent\n"
                 "- Better for structured legal text and numbered clauses\n"
                 "- Adds stronger protection for Article/Section/Clause patterns"
-            ),
-        )
-
-    def show_quote_info(self):
-        self.show_message_box(
-            QMessageBox.Information,
-            "Quote Style Info",
-            (
-                "This option runs at the end of processing and converts quotes to one consistent language-specific style.\n\n"
-                "English double\n"
-                '- "Proxima Centauri"\n\n'
-                "English single\n"
-                "- 'Proxima Centauri'\n\n"
-                "Serbian\n"
-                '- „Proxima Centauri”\n\n'
-                "German\n"
-                '- „Proxima Centauri“\n\n'
-                "Use it when you want the final document to have uniform quotation marks."
             ),
         )
 
@@ -948,9 +985,9 @@ class MainWindow(QMainWindow):
         self.profile_combo.setEnabled(not running)
         self.output_format_combo.setEnabled(not running)
         self.theme_switch.setEnabled(not running)
-        self.quote_language_combo.setEnabled(not running)
+        for button in self.quote_group.buttons():
+            button.setEnabled(not running)
         self.profile_info_button.setEnabled(not running)
-        self.quote_info_button.setEnabled(not running)
         self.deframe_checkbox.setEnabled(not running)
         self.spacing_checkbox.setEnabled(not running)
         self.blanks_checkbox.setEnabled(not running)
@@ -1041,7 +1078,7 @@ class MainWindow(QMainWindow):
             sources=sources,
             batch_mode=self.batch_checkbox.isChecked(),
             profile_name=self.profile_combo.currentText(),
-            quote_language=self.quote_language_combo.currentText(),
+            quote_language=self.quote_language(),
             output_format=selected_format,
             options=options,
             output_dir=output_dir,

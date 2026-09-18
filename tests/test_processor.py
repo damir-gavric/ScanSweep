@@ -4,10 +4,13 @@ from docx import Document
 from docx.enum.section import WD_SECTION_START
 
 from processor import (
+    QUOTE_LANGUAGES,
+    QUOTE_STYLES,
     apply_quote_style_to_segments,
     apply_quote_style_to_text,
     delete_empty_paragraphs,
     normalize_run_text,
+    quote_example,
 )
 from audit_log import AuditLog
 from processor import _run_fix_broken_sentences, fix_broken_sentences, remove_page_frames
@@ -296,6 +299,25 @@ class PageFrameTests(unittest.TestCase):
         self._strip(doc)
 
         self.assertEqual([p.text for p in doc.paragraphs], ["tekst ostaje isti"])
+
+
+class QuoteExampleTests(unittest.TestCase):
+    def test_wraps_the_sample_in_the_style_of_the_language(self):
+        self.assertEqual(quote_example("english-double", "Proxima"), '"Proxima"')
+        self.assertEqual(quote_example("english-single", "Proxima"), "'Proxima'")
+        self.assertEqual(quote_example("serbian", "Proxima"), "\u201eProxima\u201d")
+        self.assertEqual(quote_example("german", "Proxima"), "\u201eProxima\u201c")
+
+    def test_falls_back_to_english_double_for_an_unknown_language(self):
+        self.assertEqual(quote_example("klingon", "Proxima"), '"Proxima"')
+
+    def test_every_offered_language_has_a_style(self):
+        for language in QUOTE_LANGUAGES:
+            self.assertIn(language, QUOTE_STYLES)
+
+    def test_every_offered_language_reads_differently(self):
+        examples = [quote_example(language) for language in QUOTE_LANGUAGES]
+        self.assertEqual(len(examples), len(set(examples)))
 
 
 if __name__ == "__main__":

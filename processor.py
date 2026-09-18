@@ -51,6 +51,16 @@ QUOTE_STYLES = {
     "german": ("„", "“"),
 }
 
+# Offered in the interface, in the order they are shown.
+QUOTE_LANGUAGES = ("english-double", "english-single", "serbian", "german")
+
+
+def quote_example(language, sample="Proxima Centauri"):
+    """The sample wrapped in one language's quotation marks, for the interface."""
+    opening, closing = QUOTE_STYLES.get(language, QUOTE_STYLES["english-double"])
+    return f"{opening}{sample}{closing}"
+
+
 LIGATURE_MAP = str.maketrans(
     {
         "ﬁ": "fi",
