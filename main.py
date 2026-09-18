@@ -31,7 +31,7 @@ from audit_log import AuditLog
 from processor import CleaningCancelled, process_docx
 
 
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 SETTINGS_FILE_NAME = "ScanSweep.ini"
 
 
