@@ -21,70 +21,72 @@ from docx.oxml.ns import qn
 class NormalizeRunTextTests(unittest.TestCase):
     def test_keeps_outer_spaces_around_quotes(self):
         text = 'strankama "plavih" i "zelenih"'
-        self.assertEqual(normalize_run_text(text, "academic"), text)
+        self.assertEqual(normalize_run_text(text), text)
 
     def test_removes_inner_spaces_inside_quotes(self):
         text = 'strankama " plavih " i " zelenih "'
         expected = 'strankama "plavih" i "zelenih"'
-        self.assertEqual(normalize_run_text(text, "academic"), expected)
+        self.assertEqual(normalize_run_text(text), expected)
 
     def test_fixes_space_before_comma_and_period(self):
         text = "Ovo je test , a ovo druga recenica ."
         expected = "Ovo je test, a ovo druga recenica."
-        self.assertEqual(normalize_run_text(text, "academic"), expected)
+        self.assertEqual(normalize_run_text(text), expected)
 
     def test_joins_broken_hyphenated_word(self):
-        self.assertEqual(normalize_run_text("pro- gram", "academic"), "program")
-        self.assertEqual(normalize_run_text("pro - gram", "academic"), "program")
+        self.assertEqual(normalize_run_text("pro- gram"), "program")
+        self.assertEqual(normalize_run_text("pro - gram"), "program")
 
     def test_removes_false_spacing_in_numbers(self):
-        self.assertEqual(normalize_run_text("1 000 i 12 345", "academic"), "1000 i 12345")
+        self.assertEqual(normalize_run_text("1 000 i 12 345"), "1000 i 12345")
 
     def test_normalizes_ligatures(self):
-        self.assertEqual(normalize_run_text("ofﬁce ﬂow", "academic"), "office flow")
+        self.assertEqual(normalize_run_text("ofﬁce ﬂow"), "office flow")
 
     def test_normalizes_pdf_quotes(self):
-        self.assertEqual(normalize_run_text("``tekst''", "academic"), '"tekst"')
-        self.assertEqual(normalize_run_text("„tekst”", "academic"), '"tekst"')
-        self.assertEqual(normalize_run_text("„razbojnik11", "academic"), '"razbojnik"')
+        self.assertEqual(normalize_run_text("``tekst''"), '"tekst"')
+        self.assertEqual(normalize_run_text("„tekst”"), '"tekst"')
+        self.assertEqual(normalize_run_text("„razbojnik11"), '"razbojnik"')
 
     def test_does_not_turn_regular_number_11_into_quote(self):
-        self.assertEqual(normalize_run_text('clan 11 stupa na snagu', "academic"), "clan 11 stupa na snagu")
+        self.assertEqual(normalize_run_text('clan 11 stupa na snagu'), "clan 11 stupa na snagu")
 
     def test_fixes_ocr_quote_11_and_missing_space_before_quote(self):
         text = 'Jer nazivi "ubica" i "razbojnik11 bili su od njih cenjeni i odgovarali su nazivu"energičan"'
         expected = 'Jer nazivi "ubica" i "razbojnik" bili su od njih cenjeni i odgovarali su nazivu "energičan"'
-        self.assertEqual(normalize_run_text(text, "academic"), expected)
+        self.assertEqual(normalize_run_text(text), expected)
 
     def test_normalizes_duplicate_punctuation(self):
-        self.assertEqual(normalize_run_text("ovo .. ,,, test", "academic"), "ovo., test")
+        self.assertEqual(normalize_run_text("ovo .. ,,, test"), "ovo., test")
 
     def test_keeps_an_ellipsis(self):
         self.assertEqual(
-            normalize_run_text("trebalo je imati vere... vere koju", "academic"),
+            normalize_run_text("trebalo je imati vere... vere koju"),
             "trebalo je imati vere... vere koju",
         )
 
     def test_tidies_a_spaced_or_overlong_ellipsis(self):
-        self.assertEqual(normalize_run_text("vere. . . vere", "academic"), "vere... vere")
-        self.assertEqual(normalize_run_text("vere..... vere", "academic"), "vere... vere")
+        self.assertEqual(normalize_run_text("vere. . . vere"), "vere... vere")
+        self.assertEqual(normalize_run_text("vere..... vere"), "vere... vere")
 
     def test_keeps_an_en_dash_between_words(self):
         self.assertEqual(
-            normalize_run_text("znamo da to mozemo – kao sto znamo", "academic"),
+            normalize_run_text("znamo da to mozemo – kao sto znamo"),
             "znamo da to mozemo – kao sto znamo",
         )
 
     def test_reduces_an_em_dash_to_an_en_dash(self):
-        self.assertEqual(normalize_run_text("mozemo — kao sto", "academic"), "mozemo – kao sto")
-        self.assertEqual(normalize_run_text("— Zdravo", "academic"), "– Zdravo")
+        self.assertEqual(normalize_run_text("mozemo — kao sto"), "mozemo – kao sto")
+        self.assertEqual(normalize_run_text("— Zdravo"), "– Zdravo")
 
     def test_spaces_out_a_dash_glued_between_words(self):
-        self.assertEqual(normalize_run_text("rec—rec", "academic"), "rec – rec")
+        self.assertEqual(normalize_run_text("rec—rec"), "rec – rec")
 
-    def test_slash_spacing_depends_on_profile(self):
-        self.assertEqual(normalize_run_text("i / ili", "academic"), "i/ili")
-        self.assertEqual(normalize_run_text("i / ili", "legal"), "i / ili")
+    def test_slash_spacing_is_off_unless_asked_for(self):
+        self.assertEqual(normalize_run_text("i / ili"), "i / ili")
+
+    def test_slash_spacing_closes_up_when_asked_for(self):
+        self.assertEqual(normalize_run_text("i / ili", close_slash_spacing=True), "i/ili")
 
     def test_uniform_quote_style_english(self):
         self.assertEqual(apply_quote_style_to_text('"Crvena zvezda"', "english-double"), '"Crvena zvezda"')
@@ -159,7 +161,7 @@ class DeleteEmptyParagraphsTests(unittest.TestCase):
 class MergeAuditTests(unittest.TestCase):
     @staticmethod
     def _audit():
-        return AuditLog("src.docx", "dst.docx", "academic", "serbian", ".docx", {})
+        return AuditLog("src.docx", "dst.docx", {}, "serbian", ".docx", {})
 
     def test_records_one_change_per_merge_and_nothing_else(self):
         doc = Document()
@@ -171,7 +173,7 @@ class MergeAuditTests(unittest.TestCase):
         doc.add_paragraph("Sesta recenica stoji sama.")
         audit = self._audit()
 
-        _run_fix_broken_sentences(doc, lambda message: None, "academic", None, None, audit)
+        _run_fix_broken_sentences(doc, lambda message: None, False, None, None, audit)
 
         self.assertEqual(audit.stats["merged_paragraph_pairs"], 2)
         self.assertEqual(len(audit.changes["paragraph_merge"]), 2)
@@ -182,7 +184,7 @@ class MergeAuditTests(unittest.TestCase):
         doc.add_paragraph("nastavak prve recenice.")
         audit = self._audit()
 
-        _run_fix_broken_sentences(doc, lambda message: None, "academic", None, None, audit)
+        _run_fix_broken_sentences(doc, lambda message: None, False, None, None, audit)
 
         change = audit.changes["paragraph_merge"][0]
         self.assertIn("Prva recenica koja se nastavlja", change["before"])
@@ -196,7 +198,7 @@ class MergeAuditTests(unittest.TestCase):
 class MergeAcrossSectionBreakTests(unittest.TestCase):
     @staticmethod
     def _merge(doc):
-        return fix_broken_sentences(doc, lambda message: None, "academic")
+        return fix_broken_sentences(doc, lambda message: None)
 
     def test_merges_a_sentence_split_across_a_section_break(self):
         doc = Document()
@@ -318,6 +320,37 @@ class QuoteExampleTests(unittest.TestCase):
     def test_every_offered_language_reads_differently(self):
         examples = [quote_example(language) for language in QUOTE_LANGUAGES]
         self.assertEqual(len(examples), len(set(examples)))
+
+
+class LegalNumberingTests(unittest.TestCase):
+    @staticmethod
+    def _merge(doc, protect_legal_numbering):
+        return fix_broken_sentences(doc, lambda message: None, protect_legal_numbering)
+
+    @staticmethod
+    def _numbered_pair(doc):
+        doc.add_paragraph("Article 12 the parties agree that")
+        doc.add_paragraph("the contract shall remain in force.")
+
+    def test_merges_numbered_clauses_when_protection_is_off(self):
+        doc = Document()
+        self._numbered_pair(doc)
+
+        self.assertEqual(self._merge(doc, False), 1)
+
+    def test_leaves_numbered_clauses_alone_when_protection_is_on(self):
+        doc = Document()
+        self._numbered_pair(doc)
+
+        self.assertEqual(self._merge(doc, True), 0)
+
+    def test_protects_a_label_line_whatever_the_setting(self):
+        for protect in (False, True):
+            doc = Document()
+            doc.add_paragraph("Napomena:")
+            doc.add_paragraph("nastavak koji bi se inace spojio.")
+
+            self.assertEqual(self._merge(doc, protect), 0)
 
 
 if __name__ == "__main__":

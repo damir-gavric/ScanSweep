@@ -4,14 +4,24 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSize, QSettings, QThread, Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPen
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
-    QFrame,
+    QFontComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -23,6 +33,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -30,10 +41,30 @@ from PySide6.QtWidgets import (
 
 from conversion import convert_with_libreoffice, needs_conversion
 from audit_log import AuditLog
-from processor import QUOTE_LANGUAGES, CleaningCancelled, process_docx, quote_example
+from processor import (
+    DEFAULT_FORMATTING,
+    QUOTE_LANGUAGES,
+    CleaningCancelled,
+    process_docx,
+    quote_example,
+)
 
 
 APP_VERSION = "2.2"
+OUTPUT_FORMATS = (".docx", ".odt")
+
+# The presets this version replaced, used once to carry an old choice over.
+RETIRED_PROFILES = {
+    "novel": {"font_name": "Garamond", "font_size": 12, "line_spacing": 1.15,
+              "first_line_indent_cm": 1.0, "close_slash_spacing": False,
+              "protect_legal_numbering": False},
+    "academic": {"font_name": "Arial", "font_size": 11, "line_spacing": 1.15,
+                 "first_line_indent_cm": 1.0, "close_slash_spacing": True,
+                 "protect_legal_numbering": False},
+    "legal": {"font_name": "Times New Roman", "font_size": 12, "line_spacing": 1.0,
+              "first_line_indent_cm": 0.0, "close_slash_spacing": False,
+              "protect_legal_numbering": True},
+}
 SETTINGS_FILE_NAME = "ScanSweep.ini"
 
 
@@ -42,6 +73,19 @@ def application_directory():
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def resource_path(name):
+    """A bundled file: beside the source, or inside the unpacked bundle when frozen."""
+    return Path(__file__).resolve().with_name(name)
+
+
+def theme_stylesheet(sheet):
+    """A theme with its image paths filled in; Qt needs forward slashes."""
+    return (
+        sheet.replace("__CHEVRON_DOWN__", resource_path("chevron_down.svg").as_posix())
+        .replace("__CHEVRON_UP__", resource_path("chevron_up.svg").as_posix())
+    )
 
 
 def settings_file_path():
@@ -66,12 +110,60 @@ QGroupBox::title {
     left: 12px;
     padding: 0 4px;
 }
-QListWidget, QPlainTextEdit, QComboBox {
+QListWidget, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     border: 1px solid #404040;
     border-radius: 8px;
     padding: 6px;
     background-color: #222222;
     color: #f4f4f4;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: url(__CHEVRON_DOWN__);
+    width: 12px;
+    height: 8px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 24px;
+    height: 15px;
+    margin: 3px 4px 0 0;
+    border: none;
+    background: transparent;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 24px;
+    height: 15px;
+    margin: 0 4px 3px 0;
+    border: none;
+    background: transparent;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(__CHEVRON_UP__);
+    width: 11px;
+    height: 7px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(__CHEVRON_DOWN__);
+    width: 11px;
+    height: 7px;
+}
+QComboBox QAbstractItemView {
+    border: 1px solid #404040;
+    background-color: #222222;
+    color: #f4f4f4;
+    selection-background-color: #0e6b80;
+    selection-color: #ffffff;
+    outline: none;
 }
 QPushButton {
     padding: 8px 14px;
@@ -100,9 +192,9 @@ QCheckBox, QRadioButton {
     spacing: 8px;
 }
 QRadioButton::indicator {
-    width: 14px;
-    height: 14px;
-    border-radius: 8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 10px;
     border: 1px solid #6a6a6a;
     background-color: #222222;
 }
@@ -110,10 +202,10 @@ QRadioButton::indicator:hover {
     border-color: #8f8f8f;
 }
 QRadioButton::indicator:checked {
-    width: 8px;
-    height: 8px;
-    border: 4px solid #59c4ff;
-    border-radius: 8px;
+    width: 10px;
+    height: 10px;
+    border: 5px solid #59c4ff;
+    border-radius: 10px;
     background-color: #1f1f1f;
 }
 QProgressBar {
@@ -164,12 +256,60 @@ QGroupBox::title {
     left: 12px;
     padding: 0 4px;
 }
-QListWidget, QPlainTextEdit, QComboBox {
+QListWidget, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     border: 1px solid #c5d0e0;
     border-radius: 8px;
     padding: 6px;
     background-color: #ffffff;
     color: #1d2433;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: url(__CHEVRON_DOWN__);
+    width: 12px;
+    height: 8px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 24px;
+    height: 15px;
+    margin: 3px 4px 0 0;
+    border: none;
+    background: transparent;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 24px;
+    height: 15px;
+    margin: 0 4px 3px 0;
+    border: none;
+    background: transparent;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(__CHEVRON_UP__);
+    width: 11px;
+    height: 7px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(__CHEVRON_DOWN__);
+    width: 11px;
+    height: 7px;
+}
+QComboBox QAbstractItemView {
+    border: 1px solid #c5d0e0;
+    background-color: #ffffff;
+    color: #1d2433;
+    selection-background-color: #cfe9ff;
+    selection-color: #102136;
+    outline: none;
 }
 QPushButton {
     padding: 8px 14px;
@@ -198,9 +338,9 @@ QCheckBox, QRadioButton {
     spacing: 8px;
 }
 QRadioButton::indicator {
-    width: 14px;
-    height: 14px;
-    border-radius: 8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 10px;
     border: 1px solid #a6b2c4;
     background-color: #ffffff;
 }
@@ -208,10 +348,10 @@ QRadioButton::indicator:hover {
     border-color: #7d8ca3;
 }
 QRadioButton::indicator:checked {
-    width: 8px;
-    height: 8px;
-    border: 4px solid #1683d8;
-    border-radius: 8px;
+    width: 10px;
+    height: 10px;
+    border: 5px solid #1683d8;
+    border-radius: 10px;
     background-color: #ffffff;
 }
 QProgressBar {
@@ -447,7 +587,7 @@ class CleanerWorker(QThread):
         self,
         sources,
         batch_mode,
-        profile_name,
+        settings,
         quote_language,
         output_format,
         options,
@@ -457,7 +597,7 @@ class CleanerWorker(QThread):
         super().__init__()
         self.sources = sources
         self.batch_mode = batch_mode
-        self.profile_name = profile_name
+        self.settings = settings
         self.quote_language = quote_language
         self.output_format = output_format
         self.options = options
@@ -501,7 +641,7 @@ class CleanerWorker(QThread):
                     audit_log = AuditLog(
                         src=src,
                         dst=dst,
-                        profile_name=self.profile_name,
+                        formatting=self.settings,
                         quote_language=self.quote_language,
                         output_format=self.output_format,
                         options=self.options,
@@ -545,7 +685,7 @@ class CleanerWorker(QThread):
                         do_sentfix=self.options["sentfix"],
                         do_quote_uniform=self.options["quote_uniform"],
                         quote_language=self.quote_language,
-                        profile_name=self.profile_name,
+                        settings=self.settings,
                         log=log_callback,
                         progress_callback=cleaning_progress,
                         should_cancel=should_cancel,
@@ -680,11 +820,6 @@ class MainWindow(QMainWindow):
         self.file_progress.setMinimumHeight(18)
         progress_layout.addWidget(self.file_progress)
 
-        progress_divider = QFrame()
-        progress_divider.setFrameShape(QFrame.HLine)
-        progress_divider.setFrameShadow(QFrame.Sunken)
-        progress_layout.addWidget(progress_divider)
-
         self.overall_label = QLabel("Overall progress: -")
         progress_layout.addWidget(self.overall_label)
 
@@ -707,49 +842,82 @@ class MainWindow(QMainWindow):
         settings_layout = QVBoxLayout(settings_group)
         settings_layout.setSpacing(12)
 
-        profile_row = QHBoxLayout()
-        profile_label = QLabel("Profile")
-        profile_label.setMinimumWidth(60)
-        profile_row.addWidget(profile_label)
-        self.profile_combo = QComboBox()
-        self.profile_combo.addItems(["novel", "academic", "legal"])
-        self.profile_combo.setCurrentText("academic")
-        self.profile_combo.setMinimumHeight(34)
-        profile_row.addWidget(self.profile_combo, 1)
-        self.profile_info_button = self._create_info_button()
-        self.profile_info_button.clicked.connect(self.show_profile_info)
-        profile_row.addWidget(self.profile_info_button)
-        settings_layout.addLayout(profile_row)
+        font_row = QHBoxLayout()
+        font_label = QLabel("Font")
+        font_label.setMinimumWidth(60)
+        font_row.addWidget(font_label)
+        self.font_combo = QFontComboBox()
+        self.font_combo.setWritingSystem(QFontDatabase.WritingSystem.Latin)
+        self.font_combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+        self.font_combo.setMaxVisibleItems(14)
+        self.font_combo.setMinimumHeight(34)
+        font_row.addWidget(self.font_combo, 1)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(6, 72)
+        self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setMinimumHeight(34)
+        font_row.addWidget(self.font_size_spin)
+        settings_layout.addLayout(font_row)
+
+        metrics_row = QHBoxLayout()
+        spacing_label = QLabel("Spacing")
+        spacing_label.setMinimumWidth(60)
+        metrics_row.addWidget(spacing_label)
+        self.line_spacing_spin = QDoubleSpinBox()
+        self.line_spacing_spin.setRange(0.5, 3.0)
+        self.line_spacing_spin.setSingleStep(0.05)
+        self.line_spacing_spin.setDecimals(2)
+        self.line_spacing_spin.setMinimumHeight(34)
+        metrics_row.addWidget(self.line_spacing_spin)
+        metrics_row.addSpacing(20)
+        metrics_row.addWidget(QLabel("First line"))
+        self.indent_spin = QDoubleSpinBox()
+        self.indent_spin.setRange(0.0, 5.0)
+        self.indent_spin.setSingleStep(0.25)
+        self.indent_spin.setDecimals(2)
+        self.indent_spin.setSuffix(" cm")
+        self.indent_spin.setMinimumHeight(34)
+        metrics_row.addWidget(self.indent_spin)
+        metrics_row.addStretch(1)
+        settings_layout.addLayout(metrics_row)
 
         output_row = QHBoxLayout()
         output_label = QLabel("Output")
         output_label.setMinimumWidth(60)
         output_row.addWidget(output_label)
-        self.output_format_combo = QComboBox()
-        self.output_format_combo.addItems([".docx", ".odt"])
-        self.output_format_combo.setCurrentText(".docx")
-        self.output_format_combo.setMinimumHeight(34)
-        output_row.addWidget(self.output_format_combo, 1)
+        self.output_group = QButtonGroup(self)
+        for extension in OUTPUT_FORMATS:
+            button = QRadioButton(extension)
+            button.setProperty("outputFormat", extension)
+            self.output_group.addButton(button)
+            output_row.addWidget(button)
+            output_row.addSpacing(18)
+        output_row.addStretch(1)
         settings_layout.addLayout(output_row)
 
         quote_label = QLabel("Quotes")
-        settings_layout.addWidget(quote_label)
+        quote_label.setMinimumWidth(60)
 
         self.quote_group = QButtonGroup(self)
-        sample_font = QFont(self.font())
-        sample_font.setPointSize(sample_font.pointSize() + 3)
+        # A serif face draws curly quotes as distinct comma shapes; the interface
+        # sans renders the opening and closing pair as near-identical strokes.
+        marks_font = QFont("Georgia")
+        marks_font.setPointSize(22)
+        quotes_layout = QHBoxLayout()
+        quotes_layout.setSpacing(22)
+        quotes_layout.addWidget(quote_label)
         for language in QUOTE_LANGUAGES:
-            quote_row = QHBoxLayout()
-            button = QRadioButton(quote_example(language))
-            button.setFont(sample_font)
+            button = QRadioButton(quote_example(language, " "))  # thin space keeps the pair tight but legible
+            button.setFont(marks_font)
+            button.setToolTip(language)
             button.setProperty("quoteLanguage", language)
+            # The low opening mark drops below the baseline and would otherwise
+            # crowd the row beneath it.
+            button.setMinimumHeight(54)
             self.quote_group.addButton(button)
-            quote_row.addWidget(button)
-            quote_row.addStretch(1)
-            name = QLabel(language)
-            name.setObjectName("hintLabel")
-            quote_row.addWidget(name)
-            settings_layout.addLayout(quote_row)
+            quotes_layout.addWidget(button)
+        quotes_layout.addStretch(1)
+        settings_layout.addLayout(quotes_layout)
 
         right_column.addWidget(settings_group)
 
@@ -781,7 +949,7 @@ class MainWindow(QMainWindow):
         self.indents_checkbox.setChecked(True)
         options_layout.addWidget(self.indents_checkbox)
 
-        self.unify_checkbox = QCheckBox("Unify body text using selected profile")
+        self.unify_checkbox = QCheckBox("Unify body text")
         self.unify_checkbox.setChecked(True)
         options_layout.addWidget(self.unify_checkbox)
 
@@ -792,6 +960,14 @@ class MainWindow(QMainWindow):
         self.quote_uniform_checkbox = QCheckBox("Uniform quotes at the end")
         self.quote_uniform_checkbox.setChecked(True)
         options_layout.addWidget(self.quote_uniform_checkbox)
+
+        self.slash_checkbox = QCheckBox("Close spaces around slashes (i / ili → i/ili)")
+        options_layout.addWidget(self.slash_checkbox)
+
+        self.legal_checkbox = QCheckBox(
+            "Keep legal numbering on its own line (Article 1, § 2, (3), 1.1)"
+        )
+        options_layout.addWidget(self.legal_checkbox)
 
         options_note = QLabel(
             "Sentence merging stays conservative: headings, lists and title-like lines are protected. "
@@ -836,16 +1012,6 @@ class MainWindow(QMainWindow):
         self.theme_switch.set_theme("dark")
         self.apply_theme("dark")
 
-    def _create_info_button(self):
-        button = QPushButton()
-        button.setProperty("infoButton", True)
-        button.setCursor(Qt.PointingHandCursor)
-        button.setToolTip("More information")
-        button.setIcon(QIcon(str(Path(__file__).with_name("info_icon.svg"))))
-        button.setIconSize(button.sizeHint())
-        button.setText("")
-        return button
-
     def quote_language(self):
         button = self.quote_group.checkedButton()
         if button is None:
@@ -860,16 +1026,59 @@ class MainWindow(QMainWindow):
                 return
         buttons[0].setChecked(True)
 
+    def formatting(self):
+        return {
+            "font_name": self.font_combo.currentFont().family(),
+            "font_size": self.font_size_spin.value(),
+            "line_spacing": self.line_spacing_spin.value(),
+            "first_line_indent_cm": self.indent_spin.value(),
+            "close_slash_spacing": self.slash_checkbox.isChecked(),
+            "protect_legal_numbering": self.legal_checkbox.isChecked(),
+        }
+
+    def set_formatting(self, values):
+        self.font_combo.setCurrentFont(QFont(values["font_name"]))
+        self.font_size_spin.setValue(int(values["font_size"]))
+        self.line_spacing_spin.setValue(float(values["line_spacing"]))
+        self.indent_spin.setValue(float(values["first_line_indent_cm"]))
+        self.slash_checkbox.setChecked(bool(values["close_slash_spacing"]))
+        self.legal_checkbox.setChecked(bool(values["protect_legal_numbering"]))
+
+    def stored_formatting(self):
+        """Saved settings, or the retired preset they were last used with."""
+        if self.settings.value("font_name") is None:
+            return RETIRED_PROFILES.get(
+                self.settings.value("profile", "academic"), dict(DEFAULT_FORMATTING)
+            )
+        return {
+            "font_name": self.settings.value("font_name", DEFAULT_FORMATTING["font_name"]),
+            "font_size": self.settings.value("font_size", DEFAULT_FORMATTING["font_size"], type=int),
+            "line_spacing": self.settings.value("line_spacing", DEFAULT_FORMATTING["line_spacing"], type=float),
+            "first_line_indent_cm": self.settings.value(
+                "first_line_indent_cm", DEFAULT_FORMATTING["first_line_indent_cm"], type=float
+            ),
+            "close_slash_spacing": self.settings.value("close_slash_spacing", False, type=bool),
+            "protect_legal_numbering": self.settings.value("protect_legal_numbering", False, type=bool),
+        }
+
+    def output_format(self):
+        button = self.output_group.checkedButton()
+        if button is None:
+            return OUTPUT_FORMATS[0]
+        return button.property("outputFormat")
+
+    def set_output_format(self, extension):
+        buttons = self.output_group.buttons()
+        for button in buttons:
+            if button.property("outputFormat") == extension:
+                button.setChecked(True)
+                return
+        buttons[0].setChecked(True)
+
     def load_settings(self):
         self.batch_checkbox.setChecked(self.settings.value("batch_mode", False, type=bool))
-        stored_profile = self.settings.value("profile", "academic")
-        profile_aliases = {
-            "roman": "novel",
-            "strucni_rad": "academic",
-            "pravni_tekst": "legal",
-        }
-        self.profile_combo.setCurrentText(profile_aliases.get(stored_profile, stored_profile))
-        self.output_format_combo.setCurrentText(self.settings.value("output_format", ".docx"))
+        self.set_formatting(self.stored_formatting())
+        self.set_output_format(self.settings.value("output_format", ".docx"))
         self.theme_switch.set_theme(self.settings.value("theme", "dark"))
         stored_quote_language = self.settings.value("quote_language", "serbian")
         quote_aliases = {
@@ -887,8 +1096,9 @@ class MainWindow(QMainWindow):
 
     def save_settings(self):
         self.settings.setValue("batch_mode", self.batch_checkbox.isChecked())
-        self.settings.setValue("profile", self.profile_combo.currentText())
-        self.settings.setValue("output_format", self.output_format_combo.currentText())
+        for key, value in self.formatting().items():
+            self.settings.setValue(key, value)
+        self.settings.setValue("output_format", self.output_format())
         self.settings.setValue("theme", self.theme_switch.theme_name())
         self.settings.setValue("quote_language", self.quote_language())
         self.settings.setValue("deframe", self.deframe_checkbox.isChecked())
@@ -914,31 +1124,10 @@ class MainWindow(QMainWindow):
             box.setStyleSheet(MESSAGE_BOX_DARK_THEME)
         return box.exec()
 
-    def show_profile_info(self):
-        self.show_message_box(
-            QMessageBox.Information,
-            "Profile Info",
-            (
-                "Profiles define the cleanup style and final body-text formatting.\n\n"
-                "Novel\n"
-                "- Garamond 12, first-line indent 1 cm\n"
-                "- Better for book-like prose and dialogue-heavy text\n"
-                "- Keeps slash spacing less aggressive\n\n"
-                "Academic\n"
-                "- Arial 11, first-line indent 1 cm\n"
-                "- Best general-purpose profile for reports and articles\n"
-                "- Applies stricter slash normalization such as i / ili -> i/ili\n\n"
-                "Legal\n"
-                "- Times New Roman 12, no first-line indent\n"
-                "- Better for structured legal text and numbered clauses\n"
-                "- Adds stronger protection for Article/Section/Clause patterns"
-            ),
-        )
-
     def apply_theme(self, theme_name):
         if self.theme_switch.theme_name() != theme_name:
             self.theme_switch.set_theme(theme_name)
-        self.setStyleSheet(LIGHT_THEME if theme_name == "light" else DARK_THEME)
+        self.setStyleSheet(theme_stylesheet(LIGHT_THEME if theme_name == "light" else DARK_THEME))
         if self.active_file_path:
             self.highlight_active_file(self.active_file_path)
         else:
@@ -982,12 +1171,17 @@ class MainWindow(QMainWindow):
         self.clear_button.setEnabled(not running)
         self.file_list.setEnabled(not running)
         self.batch_checkbox.setEnabled(not running)
-        self.profile_combo.setEnabled(not running)
-        self.output_format_combo.setEnabled(not running)
+        self.font_combo.setEnabled(not running)
+        self.font_size_spin.setEnabled(not running)
+        self.line_spacing_spin.setEnabled(not running)
+        self.indent_spin.setEnabled(not running)
+        self.slash_checkbox.setEnabled(not running)
+        self.legal_checkbox.setEnabled(not running)
+        for button in self.output_group.buttons():
+            button.setEnabled(not running)
         self.theme_switch.setEnabled(not running)
         for button in self.quote_group.buttons():
             button.setEnabled(not running)
-        self.profile_info_button.setEnabled(not running)
         self.deframe_checkbox.setEnabled(not running)
         self.spacing_checkbox.setEnabled(not running)
         self.blanks_checkbox.setEnabled(not running)
@@ -1034,7 +1228,7 @@ class MainWindow(QMainWindow):
             self.show_message_box(QMessageBox.Warning, "No file", "Choose at least one DOCX or ODT file first.")
             return
 
-        selected_format = self.output_format_combo.currentText()
+        selected_format = self.output_format()
         if self.batch_checkbox.isChecked():
             output_dir = QFileDialog.getExistingDirectory(self, "Choose output folder for cleaned files")
             if not output_dir:
@@ -1077,7 +1271,7 @@ class MainWindow(QMainWindow):
         self.worker = CleanerWorker(
             sources=sources,
             batch_mode=self.batch_checkbox.isChecked(),
-            profile_name=self.profile_combo.currentText(),
+            settings=self.formatting(),
             quote_language=self.quote_language(),
             output_format=selected_format,
             options=options,

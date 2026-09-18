@@ -12,7 +12,7 @@ class AuditLogTests(unittest.TestCase):
             audit = AuditLog(
                 src="input.docx",
                 dst=dst,
-                profile_name="academic",
+                formatting={"font_name": "Garamond", "font_size": 12},
                 quote_language="serbian",
                 output_format=".docx",
                 options={"spacing": True},
@@ -28,6 +28,8 @@ class AuditLogTests(unittest.TestCase):
             self.assertIn("text_normalization", text)
             self.assertIn("a ,", text)
             self.assertIn("a,", text)
+            self.assertIn("font_name", text)
+            self.assertIn("Garamond", text)
 
 
 if __name__ == "__main__":

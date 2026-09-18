@@ -53,7 +53,11 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('app_icon.svg', '.'), ('info_icon.svg', '.')],
+    datas=[
+        ('app_icon.svg', '.'),
+        ('chevron_down.svg', '.'),
+        ('chevron_up.svg', '.'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -4,10 +4,10 @@ from pathlib import Path
 
 
 class AuditLog:
-    def __init__(self, src, dst, profile_name, quote_language, output_format, options):
+    def __init__(self, src, dst, formatting, quote_language, output_format, options):
         self.src = src
         self.dst = dst
-        self.profile_name = profile_name
+        self.formatting = formatting
         self.quote_language = quote_language
         self.output_format = output_format
         self.options = options
@@ -47,12 +47,16 @@ class AuditLog:
             f"- Time: `{self.created_at}`",
             f"- Input: `{self.src}`",
             f"- Output: `{self.dst}`",
-            f"- Profile: `{self.profile_name}`",
             f"- Quote style: `{self.quote_language}`",
             f"- Output format: `{self.output_format}`",
             "",
-            "## Enabled Options",
+            "## Formatting",
         ]
+
+        for key, value in sorted(self.formatting.items()):
+            lines.append(f"- {key}: `{value}`")
+
+        lines.extend(["", "## Enabled Options"])
 
         for key, value in sorted(self.options.items()):
             lines.append(f"- {key}: `{value}`")

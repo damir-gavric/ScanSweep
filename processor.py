@@ -7,42 +7,33 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt
 
-PROFILE_SETTINGS = {
-    "novel": {
-        "font_name": "Garamond",
-        "font_size": 12,
-        "line_spacing": 1.15,
-        "first_line_indent_cm": 1,
-        "normalize_slash_spacing": False,
-        "protect_patterns": [
-            r"^[A-Z][a-z]+:$",
-        ],
-        "merge_after_punctuation": False,
-    },
-    "academic": {
-        "font_name": "Arial",
-        "font_size": 11,
-        "line_spacing": 1.15,
-        "first_line_indent_cm": 1,
-        "normalize_slash_spacing": True,
-        "protect_patterns": [],
-        "merge_after_punctuation": False,
-    },
-    "legal": {
-        "font_name": "Times New Roman",
-        "font_size": 12,
-        "line_spacing": 1.0,
-        "first_line_indent_cm": 0,
-        "normalize_slash_spacing": False,
-        "protect_patterns": [
-            r"^(Article|Section|Clause|Paragraph)\s+\d+",
-            r"^§+\s*\d+",
-            r"^\(\d+\)",
-            r"^\d+\.\d+",
-        ],
-        "merge_after_punctuation": False,
-    },
+DEFAULT_FORMATTING = {
+    "font_name": "Garamond",
+    "font_size": 12,
+    "line_spacing": 1.15,
+    "first_line_indent_cm": 1.0,
+    "close_slash_spacing": False,
+    "protect_legal_numbering": False,
 }
+
+LEGAL_NUMBERING_PATTERNS = (
+    r"^(Article|Section|Clause|Paragraph)\s+\d+",
+    r"^§+\s*\d+",
+    r"^\(\d+\)",
+    r"^\d+\.\d+",
+)
+
+# A line that is nothing but a capitalised word and a colon is a label, never
+# half a sentence, whatever kind of document it sits in.
+LABEL_LINE_PATTERN = r"^[A-Z][a-z]+:$"
+
+
+def formatting(**overrides):
+    """Formatting settings, taking the defaults for anything not given."""
+    settings = dict(DEFAULT_FORMATTING)
+    settings.update(overrides)
+    return settings
+
 
 QUOTE_STYLES = {
     "english-double": ('"', '"'),
@@ -253,14 +244,7 @@ def apply_quote_style_to_segments(segments, quote_language):
     return normalized_segments
 
 
-def clean_spacing_in_run(run, profile_name, quote_style='"'):
-    if run_has_protected_markup(run):
-        return
-    run.text = normalize_run_text(run.text, profile_name, quote_style)
-
-
-def normalize_run_text(text, profile_name, quote_style='"'):
-    settings = get_profile_settings(profile_name)
+def normalize_run_text(text, close_slash_spacing=False, quote_style='"'):
     txt = text.translate(LIGATURE_MAP)
     txt = txt.replace("\t", " ")
     txt = normalize_quotes(txt)
@@ -270,7 +254,7 @@ def normalize_run_text(text, profile_name, quote_style='"'):
     txt = re.sub(r"(?<=\S)\s*[–—]\s*(?=\S)", " – ", txt)
     txt = txt.replace("—", "–")
     txt = normalize_false_number_spacing(txt)
-    txt = normalize_special_spacing(txt, settings["normalize_slash_spacing"])
+    txt = normalize_special_spacing(txt, close_slash_spacing)
     txt = re.sub(r" {2,}", " ", txt)
     txt = re.sub(r"\s+([,.;:!?])", r"\1", txt)
     txt = re.sub(r"([(\[{])\s+", r"\1", txt)
@@ -280,10 +264,6 @@ def normalize_run_text(text, profile_name, quote_style='"'):
     if quote_style == '"':
         txt = txt.replace("''", '"')
     return txt
-
-
-def get_profile_settings(profile_name):
-    return PROFILE_SETTINGS.get(profile_name, PROFILE_SETTINGS["academic"])
 
 
 def report_progress(progress_callback, percent, message):
@@ -394,8 +374,7 @@ def remove_page_frames(doc, log, progress=None, should_cancel=None):
     return released
 
 
-def reset_indents(doc, log, profile_name, progress=None, should_cancel=None):
-    settings = get_profile_settings(profile_name)
+def reset_indents(doc, log, first_line_indent_cm, progress=None, should_cancel=None):
     paragraphs = collect_all_paragraphs(doc)
 
     def apply_indent(paragraph):
@@ -404,15 +383,14 @@ def reset_indents(doc, log, profile_name, progress=None, should_cancel=None):
         is_heading = style_name.startswith(("heading", "title"))
         fmt.left_indent = Inches(0)
         fmt.right_indent = Inches(0)
-        fmt.first_line_indent = None if is_heading else Cm(settings["first_line_indent_cm"])
+        fmt.first_line_indent = None if is_heading else Cm(first_line_indent_cm)
 
     for_each_paragraph(paragraphs, apply_indent, progress, should_cancel)
-    log(f"  - Indents reset (left/right 0 cm; body first-line {settings['first_line_indent_cm']} cm)")
+    log(f"  - Indents reset (left/right 0 cm; body first-line {first_line_indent_cm} cm)")
     return len(paragraphs)
 
 
-def unify_body_text(doc, log, profile_name, progress=None, should_cancel=None):
-    settings = get_profile_settings(profile_name)
+def unify_body_text(doc, log, settings, progress=None, should_cancel=None):
     paragraphs = collect_all_paragraphs(doc)
     body_count = 0
 
@@ -484,8 +462,7 @@ def clone_run(src_run, dest_paragraph, prepend=""):
     return new_run
 
 
-def should_skip_merge(current_paragraph, next_paragraph, profile_name):
-    settings = get_profile_settings(profile_name)
+def should_skip_merge(current_paragraph, next_paragraph, protect_legal_numbering=False):
     if current_paragraph.text.strip() == "" or next_paragraph.text.strip() == "":
         return True
 
@@ -520,15 +497,18 @@ def should_skip_merge(current_paragraph, next_paragraph, profile_name):
     if re.match(r"^[A-Z0-9][A-Z0-9\s.:/-]*$", next_text):
         return True
 
-    for pattern in settings["protect_patterns"]:
-        if re.match(pattern, current_text) or re.match(pattern, next_text):
-            return True
+    if re.match(LABEL_LINE_PATTERN, current_text) or re.match(LABEL_LINE_PATTERN, next_text):
+        return True
+
+    if protect_legal_numbering:
+        for pattern in LEGAL_NUMBERING_PATTERNS:
+            if re.match(pattern, current_text) or re.match(pattern, next_text):
+                return True
 
     return False
 
 
-def should_merge_paragraphs(current_paragraph, next_paragraph, profile_name):
-    settings = get_profile_settings(profile_name)
+def should_merge_paragraphs(current_paragraph, next_paragraph):
     current_text = current_paragraph.text.rstrip()
     next_text = next_paragraph.text.lstrip()
     if not current_text or not next_text:
@@ -543,8 +523,7 @@ def should_merge_paragraphs(current_paragraph, next_paragraph, profile_name):
         return False, False
 
     if last_char in ".!?;:)]}\"'":
-        if not settings["merge_after_punctuation"]:
-            return False, False
+        return False, False
 
     if next_core[0].islower():
         return True, False
@@ -553,7 +532,7 @@ def should_merge_paragraphs(current_paragraph, next_paragraph, profile_name):
 
 
 def fix_broken_sentences_in_collection(
-    paragraphs, profile_name, progress=None, should_cancel=None, on_merge=None
+    paragraphs, protect_legal_numbering=False, progress=None, should_cancel=None, on_merge=None
 ):
     merges = 0
     total = len(paragraphs)
@@ -563,13 +542,13 @@ def fix_broken_sentences_in_collection(
         current_paragraph = paragraphs[i]
         next_paragraph = paragraphs[i + 1]
 
-        if should_skip_merge(current_paragraph, next_paragraph, profile_name):
+        if should_skip_merge(current_paragraph, next_paragraph, protect_legal_numbering):
             i += 1
             if progress is not None and (i >= len(paragraphs) - 1 or i % 10 == 0):
                 progress(min(i, total), max(total, 1))
             continue
 
-        join, strip_hyphen = should_merge_paragraphs(current_paragraph, next_paragraph, profile_name)
+        join, strip_hyphen = should_merge_paragraphs(current_paragraph, next_paragraph)
 
         if join:
             before_first = current_paragraph.text.strip()
@@ -600,7 +579,7 @@ def fix_broken_sentences_in_collection(
     return merges
 
 
-def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=None, on_merge=None):
+def fix_broken_sentences(doc, log, protect_legal_numbering=False, progress=None, should_cancel=None, on_merge=None):
     merges = 0
     collections = list(iter_paragraph_collections(doc))
     total = len(collections)
@@ -629,7 +608,7 @@ def fix_broken_sentences(doc, log, profile_name, progress=None, should_cancel=No
             if not paragraph_only_carries_section_break(paragraph)
         ]
         merges += fix_broken_sentences_in_collection(
-            mergeable, profile_name, local_progress, should_cancel, on_merge
+            mergeable, protect_legal_numbering, local_progress, should_cancel, on_merge
         )
         if progress is not None:
             progress(index, total)
@@ -650,7 +629,7 @@ def process_docx(
     do_sentfix,
     do_quote_uniform,
     quote_language,
-    profile_name,
+    settings,
     log,
     progress_callback=None,
     should_cancel=None,
@@ -668,7 +647,7 @@ def process_docx(
         )
     if do_spacing:
         enabled_stages.append(
-            ("Clean spacing", lambda reporter: _run_spacing(doc, profile_name, reporter, should_cancel, audit_log))
+            ("Clean spacing", lambda reporter: _run_spacing(doc, settings["close_slash_spacing"], reporter, should_cancel, audit_log))
         )
     if do_blanks:
         enabled_stages.append(
@@ -680,15 +659,15 @@ def process_docx(
         )
     if do_indents:
         enabled_stages.append(
-            ("Reset indents", lambda reporter: _run_reset_indents(doc, log, profile_name, reporter, should_cancel, audit_log))
+            ("Reset indents", lambda reporter: _run_reset_indents(doc, log, settings["first_line_indent_cm"], reporter, should_cancel, audit_log))
         )
     if do_unify:
         enabled_stages.append(
-            ("Unify body text", lambda reporter: _run_unify_body_text(doc, log, profile_name, reporter, should_cancel, audit_log))
+            ("Unify body text", lambda reporter: _run_unify_body_text(doc, log, settings, reporter, should_cancel, audit_log))
         )
     if do_sentfix:
         enabled_stages.append(
-            ("Fix broken sentences", lambda reporter: _run_fix_broken_sentences(doc, log, profile_name, reporter, should_cancel, audit_log))
+            ("Fix broken sentences", lambda reporter: _run_fix_broken_sentences(doc, log, settings["protect_legal_numbering"], reporter, should_cancel, audit_log))
         )
     if do_quote_uniform:
         enabled_stages.append(
@@ -721,7 +700,7 @@ def process_docx(
     report_progress(progress_callback, 100, "Finished")
 
 
-def _run_spacing(doc, profile_name, progress, should_cancel, audit_log):
+def _run_spacing(doc, close_slash_spacing, progress, should_cancel, audit_log):
     paragraphs = collect_all_paragraphs(doc)
 
     def clean_paragraph(paragraph):
@@ -729,7 +708,7 @@ def _run_spacing(doc, profile_name, progress, should_cancel, audit_log):
             if run_has_protected_markup(run):
                 continue
             before = run.text
-            after = normalize_run_text(before, profile_name)
+            after = normalize_run_text(before, close_slash_spacing)
             if before != after and audit_log is not None:
                 context = paragraph.text.strip()[:120]
                 audit_log.record_change("text_normalization", before, after, context=f"run {run_index}: {context}")
@@ -756,21 +735,21 @@ def _run_remove_breaks(doc, log, progress, should_cancel, audit_log):
         audit_log.bump("breaks_removed", removed)
 
 
-def _run_reset_indents(doc, log, profile_name, progress, should_cancel, audit_log):
-    count = reset_indents(doc, log, profile_name, progress, should_cancel)
+def _run_reset_indents(doc, log, first_line_indent_cm, progress, should_cancel, audit_log):
+    count = reset_indents(doc, log, first_line_indent_cm, progress, should_cancel)
     if audit_log is not None:
         audit_log.bump("paragraphs_with_indents_reset", count)
 
 
-def _run_unify_body_text(doc, log, profile_name, progress, should_cancel, audit_log):
-    count = unify_body_text(doc, log, profile_name, progress, should_cancel)
+def _run_unify_body_text(doc, log, settings, progress, should_cancel, audit_log):
+    count = unify_body_text(doc, log, settings, progress, should_cancel)
     if audit_log is not None:
         audit_log.bump("paragraphs_unified", count)
 
 
-def _run_fix_broken_sentences(doc, log, profile_name, progress, should_cancel, audit_log):
+def _run_fix_broken_sentences(doc, log, protect_legal_numbering, progress, should_cancel, audit_log):
     if audit_log is None:
-        fix_broken_sentences(doc, log, profile_name, progress, should_cancel)
+        fix_broken_sentences(doc, log, protect_legal_numbering, progress, should_cancel)
         return
 
     def record_merge(before_first, before_second, after_text):
@@ -778,7 +757,7 @@ def _run_fix_broken_sentences(doc, log, profile_name, progress, should_cancel, a
             "paragraph_merge", f"{before_first} || {before_second}", after_text
         )
 
-    merges = fix_broken_sentences(doc, log, profile_name, progress, should_cancel, record_merge)
+    merges = fix_broken_sentences(doc, log, protect_legal_numbering, progress, should_cancel, record_merge)
     audit_log.bump("merged_paragraph_pairs", merges)
 
 
