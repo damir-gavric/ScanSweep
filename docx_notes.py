@@ -30,8 +30,16 @@ PRESERVED_PARTS = {
 
 PKG_CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
-ET.register_namespace("", PKG_CT_NS)
-ET.register_namespace("", PKG_REL_NS)
+
+
+def _serialize(root, namespace):
+    # ElementTree holds a single global prefix map, so registering both package
+    # namespaces as the default at import time would leave only the last one
+    # unprefixed. Point the default prefix at the namespace being written
+    # instead; the tostring default_namespace argument cannot be used because
+    # these parts carry non-qualified attribute names.
+    ET.register_namespace("", namespace)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def preserve_notes(source_docx, target_docx):
@@ -88,7 +96,7 @@ def _merge_content_types(target_xml, required_parts):
             ContentType=cfg["content_type"],
         )
 
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return _serialize(root, PKG_CT_NS)
 
 
 def _merge_document_relationships(target_xml, source_xml, required_parts):
@@ -108,7 +116,7 @@ def _merge_document_relationships(target_xml, source_xml, required_parts):
             continue
         target_root.append(rel)
 
-    return ET.tostring(target_root, encoding="utf-8", xml_declaration=True)
+    return _serialize(target_root, PKG_REL_NS)
 
 
 def _rewrite_zip(target_path, entries):

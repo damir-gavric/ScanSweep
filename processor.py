@@ -302,7 +302,15 @@ def delete_empty_paragraphs(doc, log, progress=None, should_cancel=None):
             progress(index, total)
 
     for paragraph in paragraphs_to_remove:
-        paragraph._element.getparent().remove(paragraph._element)
+        element = paragraph._element
+        parent = element.getparent()
+        if parent is None:
+            continue
+        # A table cell must keep at least one paragraph, otherwise Word reports
+        # the document as corrupt.
+        if parent.tag == qn("w:tc") and len(parent.findall(qn("w:p"))) <= 1:
+            continue
+        parent.remove(element)
         removed += 1
 
     log(f"  - Removed {removed} blank paragraphs")

@@ -1,6 +1,13 @@
 import unittest
 
-from processor import apply_quote_style_to_segments, apply_quote_style_to_text, normalize_run_text
+from docx import Document
+
+from processor import (
+    apply_quote_style_to_segments,
+    apply_quote_style_to_text,
+    delete_empty_paragraphs,
+    normalize_run_text,
+)
 
 
 class NormalizeRunTextTests(unittest.TestCase):
@@ -64,6 +71,47 @@ class NormalizeRunTextTests(unittest.TestCase):
         segments = ['"', "crveni", '"', ", ", '"', "zeleni", '"']
         expected = ["„", "crveni", "”", ", ", "„", "zeleni", "”"]
         self.assertEqual(apply_quote_style_to_segments(segments, "serbian"), expected)
+
+
+class DeleteEmptyParagraphsTests(unittest.TestCase):
+    @staticmethod
+    def _clean(doc):
+        return delete_empty_paragraphs(doc, lambda message: None)
+
+    def test_keeps_last_paragraph_in_otherwise_empty_table_cell(self):
+        doc = Document()
+        table = doc.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "sadrzaj"
+        table.cell(0, 1).text = ""
+
+        self._clean(doc)
+
+        self.assertEqual(len(table.cell(0, 1).paragraphs), 1)
+
+    def test_removes_extra_blank_paragraphs_inside_table_cell(self):
+        doc = Document()
+        table = doc.add_table(rows=1, cols=1)
+        cell = table.cell(0, 0)
+        cell.text = ""
+        cell.add_paragraph("")
+        cell.add_paragraph("")
+
+        removed = self._clean(doc)
+
+        self.assertEqual(len(cell.paragraphs), 1)
+        self.assertEqual(removed, 2)
+
+    def test_removes_all_blank_paragraphs_from_document_body(self):
+        doc = Document()
+        doc.add_paragraph("prvi")
+        doc.add_paragraph("")
+        doc.add_paragraph("")
+        doc.add_paragraph("drugi")
+
+        removed = self._clean(doc)
+
+        self.assertEqual([p.text for p in doc.paragraphs], ["prvi", "drugi"])
+        self.assertEqual(removed, 2)
 
 
 if __name__ == "__main__":

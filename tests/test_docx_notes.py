@@ -3,7 +3,12 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from docx_notes import preserve_notes
+from docx_notes import (
+    PRESERVED_PARTS,
+    _merge_content_types,
+    _merge_document_relationships,
+    preserve_notes,
+)
 
 
 CONTENT_TYPES_XML = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -64,6 +69,27 @@ class PreserveNotesTests(unittest.TestCase):
                 self.assertIn("/word/footnotes.xml", content_types)
                 self.assertIn("/word/endnotes.xml", content_types)
                 self.assertIn("/word/comments.xml", content_types)
+
+
+class NamespaceSerializationTests(unittest.TestCase):
+    CONTENT_TYPES_NS = b'xmlns="http://schemas.openxmlformats.org/package/2006/content-types"'
+    RELATIONSHIPS_NS = b'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
+
+    def test_merged_content_types_keep_default_namespace(self):
+        merged = _merge_content_types(CONTENT_TYPES_XML, [PRESERVED_PARTS["footnotes"]])
+
+        self.assertIn(self.CONTENT_TYPES_NS, merged)
+        self.assertNotIn(b"ns0:", merged)
+
+    def test_merged_relationships_keep_default_namespace(self):
+        merged = _merge_document_relationships(
+            DOCUMENT_RELS_BASE,
+            DOCUMENT_RELS_WITH_NOTES,
+            [PRESERVED_PARTS["footnotes"]],
+        )
+
+        self.assertIn(self.RELATIONSHIPS_NS, merged)
+        self.assertNotIn(b"ns0:", merged)
 
 
 if __name__ == "__main__":
