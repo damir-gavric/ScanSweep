@@ -31,6 +31,22 @@ from audit_log import AuditLog
 from processor import CleaningCancelled, process_docx
 
 
+APP_VERSION = "2.0"
+SETTINGS_FILE_NAME = "ScanSweep.ini"
+
+
+def application_directory():
+    """Directory the app runs from: the executable's when frozen, the source's otherwise."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def settings_file_path():
+    """Keep settings beside the app so the portable build leaves no trace behind."""
+    return str(application_directory() / SETTINGS_FILE_NAME)
+
+
 DARK_THEME = """
 QMainWindow, QWidget#centralPanel {
     background-color: #1f1f1f;
@@ -528,8 +544,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.worker = None
         self.active_file_path = None
-        self.settings = QSettings("CleanDOCX", "ScanSweep")
-        self.setWindowTitle("ScanSweep")
+        self.settings = QSettings(settings_file_path(), QSettings.IniFormat)
+        self.setWindowTitle(f"ScanSweep {APP_VERSION}")
         self.setWindowIcon(QIcon(str(Path(__file__).with_name("app_icon.svg"))))
         self.resize(1020, 760)
         self._build_ui()
@@ -1079,6 +1095,8 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    app.setApplicationName("ScanSweep")
+    app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(QIcon(str(Path(__file__).with_name("app_icon.svg"))))
     window = MainWindow()
     window.show()

@@ -87,6 +87,26 @@ The audit log includes:
 - no first-line indent
 - stronger protection for structured legal numbering and clause patterns
 
+## Portable Build
+
+The Windows release is a single portable `.exe`. There is no installer: copy it
+anywhere, including a USB stick, and run it.
+
+Settings are stored in `ScanSweep.ini` next to the executable rather than in the
+registry, so the app leaves nothing behind on the machine it runs from.
+
+LibreOffice is not bundled. Without it the app still cleans `.docx`, but `.odt`
+input and output are unavailable.
+
+Build it from the project directory:
+
+```powershell
+cmd /c .venv\Scripts\python.exe -m PyInstaller --clean --noconfirm ScanSweep.spec
+```
+
+The version comes from `APP_VERSION` in `main.py`; the spec reads it to name the
+executable and fill in the Windows file properties.
+
 ## Notes
 
 - `.odt` files are converted through LibreOffice before and after cleaning.
